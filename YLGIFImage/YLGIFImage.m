@@ -70,7 +70,7 @@ inline static BOOL isRetinaFilePath(NSString *path)
 
 @end
 
-static NSUInteger _prefetchedNum = 10;
+static int _prefetchedNum = 10;
 
 @implementation YLGIFImage
 {
@@ -189,13 +189,11 @@ static NSUInteger _prefetchedNum = 10;
     //CFTimeInterval start = CFAbsoluteTimeGetCurrent();
     // Load first frame
     NSUInteger num = MIN(_prefetchedNum, numberOfFrames);
-    for (NSUInteger i=0; i<num; i++) {
-        CGImageRef image = CGImageSourceCreateImageAtIndex(imageSource, i, NULL);
-        if (image != NULL) {
-            [self.images replaceObjectAtIndex:i withObject:[UIImage imageWithCGImage:image scale:_scale orientation:UIImageOrientationUp]];
-            CFRelease(image);
-        } else {
-            [self.images replaceObjectAtIndex:i withObject:[NSNull null]];
+    for (int i=0; i<num; i++) {
+        @autoreleasepool {
+            CGImageRef image = CGImageSourceCreateImageAtIndex(imageSource, i, NULL);
+            [self.images replaceObjectAtIndex:i withObject:[UIImage imageWithCGImage:image scale:scale orientation:UIImageOrientationUp]];
+            CGImageRelease(image);
         }
     }
     _imageSourceRef = imageSource;
@@ -211,42 +209,43 @@ static NSUInteger _prefetchedNum = 10;
 
 - (UIImage*)getFrameWithIndex:(NSUInteger)idx
 {
-    //    if([self.images[idx] isKindOfClass:[NSNull class]])
-    //        return nil;
-    UIImage* frame = nil;
-    @synchronized(self.images) {
-        frame = self.images[idx];
-    }
-    if(!frame) {
-        CGImageRef image = CGImageSourceCreateImageAtIndex(_imageSourceRef, idx, NULL);
-        if (image != NULL) {
+    @autoreleasepool {
+        
+        //    if([self.images[idx] isKindOfClass:[NSNull class]])
+        //        return nil;
+        UIImage* frame = nil;
+        @synchronized(self.images) {
+            frame = self.images[idx];
+        }
+        if(!frame) {
+            @autoreleasepool {
+            CGImageRef image = CGImageSourceCreateImageAtIndex(_imageSourceRef, idx, NULL);
             frame = [UIImage imageWithCGImage:image scale:_scale orientation:UIImageOrientationUp];
-            CFRelease(image);
-        }
-    }
-    if(self.images.count > _prefetchedNum) {
-        if(idx != 0) {
-            [self.images replaceObjectAtIndex:idx withObject:[NSNull null]];
-        }
-        NSUInteger nextReadIdx = (idx + _prefetchedNum);
-        for(NSUInteger i=idx+1; i<=nextReadIdx; i++) {
-            NSUInteger _idx = i%self.images.count;
-            if([self.images[_idx] isKindOfClass:[NSNull class]]) {
-                dispatch_async(readFrameQueue, ^{
-                    CGImageRef image = CGImageSourceCreateImageAtIndex(_imageSourceRef, _idx, NULL);
-                    @synchronized(self.images) {
-                        if (image != NULL) {
-                            [self.images replaceObjectAtIndex:_idx withObject:[UIImage imageWithCGImage:image scale:_scale orientation:UIImageOrientationUp]];
-                            CFRelease(image);
-                        } else {
-                            [self.images replaceObjectAtIndex:_idx withObject:[NSNull null]];
-                        }
-                    }
-                });
+            CGImageRelease(image);
             }
         }
+        if(self.images.count > _prefetchedNum) {
+            if(idx != 0) {
+                [self.images replaceObjectAtIndex:idx withObject:[NSNull null]];
+            }
+            NSUInteger nextReadIdx = (idx + _prefetchedNum);
+            for(NSUInteger i=idx+1; i<=nextReadIdx; i++) {
+                NSUInteger _idx = i%self.images.count;
+                if([self.images[_idx] isKindOfClass:[NSNull class]]) {
+                    dispatch_async(readFrameQueue, ^{
+                        @autoreleasepool {
+                            CGImageRef image = CGImageSourceCreateImageAtIndex(_imageSourceRef, _idx, NULL);
+                            @synchronized(self.images) {
+                                [self.images replaceObjectAtIndex:_idx withObject:[UIImage imageWithCGImage:image scale:_scale orientation:UIImageOrientationUp]];
+                            }
+                            CGImageRelease(image);
+                        }
+                    });
+                }
+            }
+        }
+        return frame;
     }
-    return frame;
 }
 
 #pragma mark - Compatibility methods
